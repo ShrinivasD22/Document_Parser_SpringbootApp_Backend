@@ -5,6 +5,12 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 import org.apache.poi.xwpf.usermodel.*;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xslf.usermodel.XMLSlideShow;
+import org.apache.poi.xslf.usermodel.XSLFShape;
+import org.apache.poi.xslf.usermodel.XSLFSlide;
+import org.apache.poi.xslf.usermodel.XSLFTextParagraph;
+import org.apache.poi.xslf.usermodel.XSLFTextRun;
+import org.apache.poi.xslf.usermodel.XSLFTextShape;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.web.multipart.MultipartFile;
@@ -113,6 +119,40 @@ public class FileParserUtil {
                     result.append("\n");
                 }
             }
+            return result.toString();
+        }
+    }
+    public static String parsePptFile(MultipartFile file, String extractType) throws IOException {
+        try (XMLSlideShow ppt = new XMLSlideShow(file.getInputStream())) {
+            StringBuilder result = new StringBuilder();
+
+            for (XSLFSlide slide : ppt.getSlides()) {
+                for (XSLFShape shape : slide.getShapes()) {
+                    if (shape instanceof XSLFTextShape) {
+                        XSLFTextShape textShape = (XSLFTextShape) shape;
+
+                        for (XSLFTextParagraph paragraph : textShape.getTextParagraphs()) {
+                            for (XSLFTextRun textRun : paragraph.getTextRuns()) {
+                                if ("bold".equalsIgnoreCase(extractType)) {
+                                    // Extract bold text
+                                    if (textRun.isBold()) {
+                                        result.append(textRun.getRawText()).append("\n");
+                                    }
+                                } else if ("headings".equalsIgnoreCase(extractType)) {
+                                    // Extract headings based on font size threshold
+                                    if (textRun.getFontSize() != null && textRun.getFontSize() > 20) { // Assume >20 as heading
+                                        result.append(textRun.getRawText()).append("\n");
+                                    }
+                                } else {
+                                    // Default: Extract all text
+                                    result.append(textRun.getRawText()).append("\n");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             return result.toString();
         }
     }

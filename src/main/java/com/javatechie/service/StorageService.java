@@ -2,17 +2,31 @@ package com.javatechie.service;
 
 import com.javatechie.entity.ImageData;
 import com.javatechie.respository.StorageRepository;
+import com.itextpdf.io.font.constants.StandardFonts;
+import com.itextpdf.kernel.font.PdfFont;
+import com.itextpdf.kernel.font.PdfFontFactory;
+import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.layout.Document;
+import com.itextpdf.layout.element.Paragraph;
 import com.javatechie.FileParserUtil;
 import com.javatechie.util.ImageUtils;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.transaction.Transactional;
+
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -100,6 +114,8 @@ public class StorageService {
                     return FileParserUtil.parseWordFile(file, extractType);
                 } else if (file.getOriginalFilename().endsWith(".xlsx")) {
                     return FileParserUtil.parseExcelFile(file, extractType);
+                } else if (file.getOriginalFilename().endsWith(".pptx")) {
+                    return FileParserUtil.parsePptFile(file, extractType);
                 }
                 throw new IllegalArgumentException("Unsupported x-tika-ooxml file subtype");
 
@@ -109,9 +125,72 @@ public class StorageService {
             case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": // Excel
                 return FileParserUtil.parseExcelFile(file, extractType);
 
+            case "application/vnd.openxmlformats-officedocument.presentationml.presentation": // PowerPoint
+                return FileParserUtil.parsePptFile(file, extractType);
+
             default:
                 throw new IllegalArgumentException("Unsupported file type: " + fileType);
         }
+    }
+    //convert wordtopdf api
+    public File convertWordToPdf(MultipartFile wordFile) throws IOException {
+        // Open Word document
+        XWPFDocument document = new XWPFDocument(wordFile.getInputStream());
+
+        // Temporary file for PDF output
+        File pdfFile = File.createTempFile("converted", ".pdf");
+
+        try (FileOutputStream fos = new FileOutputStream(pdfFile)) {
+            PdfWriter pdfWriter = new PdfWriter(fos);
+            com.itextpdf.kernel.pdf.PdfDocument pdfDoc = new com.itextpdf.kernel.pdf.PdfDocument(pdfWriter);
+            Document pdfDocument = new Document(pdfDoc);
+
+            // Set a font to avoid issues with text rendering
+            PdfFont font = PdfFontFactory.createFont(StandardFonts.HELVETICA);
+
+            // Add each paragraph from the Word document
+            for (XWPFParagraph paragraph : document.getParagraphs()) {
+                String text = paragraph.getText();
+                if (text != null && !text.trim().isEmpty()) {
+                    pdfDocument.add(new Paragraph(text).setFont(font));
+                }
+            }
+
+            pdfDocument.close();
+        }
+
+        return pdfFile;
+    }
+
+
+
+    public File convertPdfToWord(MultipartFile file) throws IOException {
+        // Create a temporary Word file
+        File outputFile = File.createTempFile("converted", ".docx");
+
+        // Load PDF document
+        try (InputStream pdfInputStream = file.getInputStream();
+             PDDocument pdfDocument = PDDocument.load(pdfInputStream);
+             XWPFDocument wordDocument = new XWPFDocument()) {
+
+            // Use PDFBox to extract text
+            PDFTextStripper stripper = new PDFTextStripper();
+            String pdfText = stripper.getText(pdfDocument);
+
+            // Create a Word document
+            String[] lines = pdfText.split("\n");
+            for (String line : lines) {
+                XWPFParagraph paragraph = wordDocument.createParagraph();
+                paragraph.createRun().setText(line.trim());
+            }
+
+            // Write the Word document to a file
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                wordDocument.write(fos);
+            }
+        }
+
+        return outputFile;
     }
 
     // Parse uploaded file (Word, PDF, or Excel)
